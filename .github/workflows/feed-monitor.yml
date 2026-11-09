@@ -8,6 +8,9 @@ on:
 jobs:
   check-all-feeds:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -33,13 +36,15 @@ jobs:
           FEEDS = {
               "Blogspot": "http://provaticanus.blogspot.com/feeds/posts/default?alt=rss",
               "Substack": "https://provaticanus.substack.com/feed",
-              "Rumble": "https://rumble.com/c/c-410667/feed.rss"
+              "Rumble": "https://rumble.com/c/c-410667/feed.rss",
+              "X": "YOUR_X_RSS_BRIDGE_URL",
+              "Telegram": "https://t.me/s/PROVATICANUS4k",
+              "Odysee": "https://odysee.com/@ProVaticanus:a/feed.rss"
           }
           
           STATE_FILE = "seen_posts.json"
           WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-          # Load previously seen IDs
           seen = {}
           if os.path.exists(STATE_FILE):
               with open(STATE_FILE, "r") as f:
@@ -48,6 +53,9 @@ jobs:
           new_updates = []
 
           for name, url in FEEDS.items():
+              if "YOUR_X_RSS_BRIDGE_URL" in url:
+                  continue # Skip placeholder until configured
+              
               feed = feedparser.parse(url)
               if not feed.entries:
                   continue
@@ -63,11 +71,9 @@ jobs:
                       "link": latest.link
                   })
 
-          # Save state
           with open(STATE_FILE, "w") as f:
               json.dump(seen, f, indent=2)
 
-          # Dispatch notifications
           if new_updates and WEBHOOK_URL:
               for update in new_updates:
                   requests.post(WEBHOOK_URL, json=update)
