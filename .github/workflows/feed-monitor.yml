@@ -1,0 +1,83 @@
+name: ProVaticanus Multi-Page Feed Monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # Checks all channels every 15 minutes
+  workflow_dispatch:
+
+jobs:
+  check-all-feeds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install feedparser requests
+
+      - name: Run Multi-Feed Checker
+        env:
+          WEBHOOK_URL: ${{ secrets.TARGET_WEBHOOK_URL }}
+        run: |
+          python - <<'EOF'
+          import feedparser
+          import requests
+          import os
+          import json
+
+          FEEDS = {
+              "Blogspot": "http://provaticanus.blogspot.com/feeds/posts/default?alt=rss",
+              "Substack": "https://provaticanus.substack.com/feed",
+              "Rumble": "https://rumble.com/c/c-410667/feed.rss"
+          }
+          
+          STATE_FILE = "seen_posts.json"
+          WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+
+          # Load previously seen IDs
+          seen = {}
+          if os.path.exists(STATE_FILE):
+              with open(STATE_FILE, "r") as f:
+                  seen = json.load(f)
+
+          new_updates = []
+
+          for name, url in FEEDS.items():
+              feed = feedparser.parse(url)
+              if not feed.entries:
+                  continue
+              
+              latest = feed.entries[0]
+              entry_id = latest.get("id", latest.link)
+              
+              if seen.get(name) != entry_id:
+                  seen[name] = entry_id
+                  new_updates.append({
+                      "platform": name,
+                      "title": latest.title,
+                      "link": latest.link
+                  })
+
+          # Save state
+          with open(STATE_FILE, "w") as f:
+              json.dump(seen, f, indent=2)
+
+          # Dispatch notifications
+          if new_updates and WEBHOOK_URL:
+              for update in new_updates:
+                  requests.post(WEBHOOK_URL, json=update)
+                  print(f"Sent update from {update['platform']}: {update['title']}")
+          else:
+              print("No new updates across feeds.")
+          EOF
+
+      - name: Commit State
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update multi-feed states [skip ci]"
+          file_pattern: seen_posts.json
